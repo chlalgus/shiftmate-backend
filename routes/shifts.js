@@ -154,4 +154,31 @@ router.delete('/:id', requireRole('OWNER'), async (req, res) => {
   }
 });
 
+// GET /api/shifts/:id  (근무 상세 조회)
+router.get('/:id', async (req, res) => {
+  const shiftId = req.params.id;
+  const storeId = req.user.store_id;
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT 
+         s.*,
+         u.name AS assigned_user_name
+       FROM shifts s
+       LEFT JOIN users u ON u.user_id = s.assigned_user_id
+       WHERE s.shift_id = ? AND s.store_id = ?`,
+      [shiftId, storeId],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: '근무를 찾을 수 없습니다.' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('GET /api/shifts/:id error:', err);
+    res.status(500).json({ error: '근무 상세 조회 중 오류가 발생했습니다.' });
+  }
+});
+
 module.exports = router;
