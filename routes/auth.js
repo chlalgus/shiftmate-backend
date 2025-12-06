@@ -1,61 +1,105 @@
+// backend/routes/auth.js
 const express = require('express');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
-const { authRequired } = require('../middleware/authMiddleware');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'shiftmate-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 
-// POST /api/auth/login
-// body: { email, password }
+// 로그인: POST /api/auth/login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: '이메일과 비밀번호를 입력해주세요.' });
-  }
-
   try {
     const [rows] = await pool.query(
-      'SELECT user_id, name, email, role, store_id, status FROM users WHERE email = ? LIMIT 1',
-      [email]
+      'SELECT user_id, name, email, password_hash, role, store_id FROM users WHERE email = ?',
+      [email],
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ error: '존재하지 않는 계정입니다.' });
+      return res
+        .status(401)
+        .json({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
     }
 
     const user = rows[0];
-
-    if (user.status !== 'ACTIVE') {
-      return res.status(403).json({ error: '비활성화된 계정입니다.' });
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
+      return res
+        .status(401)
+        .json({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
     }
 
-    // ★ 데모용 간단 비밀번호 체크: "demo1234"만 허용
-    if (password !== 'demo1234') {
-      return res.status(401).json({ error: '비밀번호가 올바르지 않습니다. (demo1234 사용)' });
-    }
+    const token = jwt.sign(
+      {
+        user_id: user.user_id,
+        role: user.role,
+        store_id: user.store_id,
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' },
+    );
 
-    const payload = {
-      user_id: user.user_id,
-      name: user.name,
-      role: user.role,
-      store_id: user.store_id,
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
-
-    res.json({ token, user: payload });
+    res.json({
+      token,
+      user: {
+        user_id: user.user_id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        store_id: user.store_id,
+      },
+    });
   } catch (err) {
-    console.error('login error:', err);
-    res.status(500).json({ error: '로그인 중 오류가 발생했습니다.' });
+    console.error('POST /api/auth/login error:', err);
+    res
+      .status(500)
+      .json({ error: '로그인 처리 중 오류가 발생했습니다.' });
   }
 });
 
-// GET /api/auth/me
-// 헤더 Authorization: Bearer <token>
-router.get('/me', authRequired, (req, res) => {
-  res.json(req.user);
+// ⭐ 회원가입: POST /api/auth/register
+router.post('/register', async (req, res) => {
+  const { name, email, password, role } = req.body;
+
+  if (!name || !email || !password) {
+    return res
+      .status(400)
+      .json({ error: '이름, 이메일, 비밀번호는 필수입니다.' });
+  }
+
+  try {
+    // 이메일 중복 체크
+    const [exists] = await pool.query(
+      'SELECT user_id FROM users WHERE email = ?',
+      [email],
+    );
+    if (exists.length > 0) {
+      return res
+        .status(409)
+        .json({ error: '이미 존재하는 이메일입니다.' });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+
+    // 데모/과제용: store_id는 일단 NULL로 두거나, 필요하면 기본 값(1) 등으로
+    const storeId = null;
+    const userRole = role === 'OWNER' ? 'OWNER' : 'STAFF';
+
+    const [result] = await pool.query(
+      `INSERT INTO users (name, email, password_hash, role, store_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [name, email, hash, userRole, storeId],
+    );
+
+    res.status(201).json({ user_id: result.insertId });
+  } catch (err) {
+    console.error('POST /api/auth/register error:', err);
+    res
+      .status(500)
+      .json({ error: '회원가입 처리 중 오류가 발생했습니다.' });
+  }
 });
 
 module.exports = router;
