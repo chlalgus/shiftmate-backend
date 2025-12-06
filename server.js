@@ -7,6 +7,7 @@ const shiftRoutes = require('./routes/shifts');
 const requestRoutes = require('./routes/requests');
 const messageRoutes = require('./routes/messages');
 const { authRequired } = require('./middleware/authMiddleware');
+const userRoutes = require('./routes/users');
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/shifts', authRequired, shiftRoutes);
 app.use('/api/requests', authRequired, requestRoutes);
 app.use('/api/messages', authRequired, messageRoutes);
+app.use('/api/users', authRequired, userRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
